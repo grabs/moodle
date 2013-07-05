@@ -224,7 +224,7 @@ $students = feedback_get_incomplete_users($cm, $usedgroupid, $sort, $startpage, 
 echo $OUTPUT->box_start('generalbox boxaligncenter boxwidthwide');
 echo isset($groupselect) ? $groupselect : '';
 echo '<div class="clearer"></div>';
-echo $OUTPUT->box_start('mdl-align');
+echo $OUTPUT->box_start('');
 
 if (!$students) {
     echo $OUTPUT->notification(get_string('noexistingparticipants', 'enrol'));
@@ -279,15 +279,19 @@ if (!$students) {
         echo '<label for="feedback_subject">'.get_string('subject', 'feedback').'&nbsp;</label>';
         echo '<input type="text" id="feedback_subject" size="50" maxlength="255" name="subject" value="'.$subject.'" />';
         echo '</div>';
+        echo '<div>';
         print_textarea($usehtmleditor, 15, 25, 30, 10, "message", $message);
+        echo '</div>';
+        echo '<div>';
         if ($usehtmleditor) {
             print_string('formathtml');
             echo '<input type="hidden" name="format" value="'.FORMAT_HTML.'" />';
         } else {
             echo '<label for="menuformat" class="accesshide">'. get_string('format') .'</label>';
-            choose_from_menu(format_text_menu(), "format", $format, "");
+            echo html_writer::select(format_text_menu(), 'format', $format, false);
         }
-        echo '<br /><div class="buttons">';
+        echo '</div>';
+        echo '<div class="buttons">';
         echo '<input type="submit" name="send_message" value="'.get_string('send', 'feedback').'" />';
         echo '</div>';
         echo '<input type="hidden" name="sesskey" value="'.sesskey().'" />';
