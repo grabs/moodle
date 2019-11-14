@@ -158,6 +158,16 @@ class enrol_manual_plugin extends enrol_plugin {
             return NULL;
         }
 
+        // In the form we are representing 2 db columns with one field.
+        if (!empty($fields) && !empty($fields['expirynotify'])) {
+            if ($fields['expirynotify'] == 2) {
+                $fields['expirynotify'] = 1;
+                $fields['notifyall'] = 1;
+            } else {
+                $fields['notifyall'] = 0;
+            }
+        }
+
         return parent::add_instance($course, $fields);
     }
 
@@ -169,6 +179,14 @@ class enrol_manual_plugin extends enrol_plugin {
      */
     public function update_instance($instance, $data) {
         global $DB;
+
+        // In the form we are representing 2 db columns with one field.
+        if ($data->expirynotify == 2) {
+            $data->expirynotify = 1;
+            $data->notifyall = 1;
+        } else {
+            $data->notifyall = 0;
+        }
 
         // Delete all other instances, leaving only one.
         if ($instances = $DB->get_records('enrol', array('courseid' => $instance->courseid, 'enrol' => 'manual'), 'id ASC')) {
