@@ -465,6 +465,11 @@
         <INDEX NAME="eventtype" UNIQUE="false" FIELDS="eventtype"/>
         <INDEX NAME="modulename-instance" UNIQUE="false" FIELDS="modulename, instance"/>
         <INDEX NAME="component" UNIQUE="false" FIELDS="component, eventtype, instance"/>
+        <INDEX NAME="type-groupid-courseid-visible-timesort" UNIQUE="false" FIELDS="type, groupid, courseid, visible, timesort"/>
+        <INDEX NAME="userid-courseid-groupid-categoryid" UNIQUE="false" FIELDS="userid, courseid, groupid, categoryid"/>
+        <INDEX NAME="groupid-categoryid-courseid" UNIQUE="false" FIELDS="groupid, categoryid, courseid"/>
+        <INDEX NAME="eventtype-categoryid" UNIQUE="false" FIELDS="eventtype, categoryid"/>
+        <INDEX NAME="groupid-courseid" UNIQUE="false" FIELDS="groupid, courseid"/>
       </INDEXES>
     </TABLE>
     <TABLE NAME="cache_filters" COMMENT="For keeping information about cached data">
