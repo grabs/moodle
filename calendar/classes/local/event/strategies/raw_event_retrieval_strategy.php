@@ -203,7 +203,7 @@ class raw_event_retrieval_strategy implements raw_event_retrieval_strategy_inter
                     // Set filter condition for the user's events.
                     // Even though $user is a single scalar, we still use get_in_or_equal() because we are inside a loop.
                     list($inusers, $inuserparams) = $DB->get_in_or_equal($user, SQL_PARAMS_NAMED);
-                    $subqueryconditions[] = "(ev.userid $inusers AND ev.courseid = 0 AND ev.groupid = 0 AND ev.categoryid = 0)";
+                    $subqueryconditions[] = "WHERE (ev.userid $inusers AND ev.courseid = 0 AND ev.groupid = 0 AND ev.categoryid = 0)";
                     $subqueryparams = array_merge($subqueryparams, $inuserparams);
 
                     foreach ($usercourses as $courseid) {
@@ -220,31 +220,31 @@ class raw_event_retrieval_strategy implements raw_event_retrieval_strategy_inter
                 // Set filter condition for the user's group events.
                 if ($usergroups === true || $viewgroupsonly) {
                     // Fetch group events, but not group overrides.
-                    $subqueryconditions[] = "(ev.groupid != 0 AND ev.eventtype = 'group')";
+                    $subqueryconditions[] = "WHERE (ev.groupid != 0 AND ev.eventtype = 'group')";
                 } else if (!empty($usergroups)) {
                     // Fetch group events and group overrides.
                     list($inusergroups, $inusergroupparams) = $DB->get_in_or_equal($usergroups, SQL_PARAMS_NAMED);
-                    $subqueryconditions[] = "(ev.groupid $inusergroups)";
+                    $subqueryconditions[] = "WHERE (ev.groupid $inusergroups)";
                     $subqueryparams = array_merge($subqueryparams, $inusergroupparams);
                 }
             }
         } else if ($users === true) {
             // Events from ALL users.
-            $subqueryconditions[] = "(ev.userid != 0 AND ev.courseid = 0 AND ev.groupid = 0 AND ev.categoryid = 0)";
+            $subqueryconditions[] = "WHERE (ev.userid != 0 AND ev.courseid = 0 AND ev.groupid = 0 AND ev.categoryid = 0)";
 
             if (is_array($groups)) {
                 // Events from a number of groups.
                 list($insqlgroups, $inparamsgroups) = $DB->get_in_or_equal($groups, SQL_PARAMS_NAMED);
-                $subqueryconditions[] = "ev.groupid $insqlgroups";
+                $subqueryconditions[] = "WHERE ev.groupid $insqlgroups";
                 $subqueryparams = array_merge($subqueryparams, $inparamsgroups);
             } else if ($groups === true) {
                 // Events from ALL groups.
-                $subqueryconditions[] = "ev.groupid != 0";
+                $subqueryconditions[] = "WHERE ev.groupid != 0";
             }
 
             if ($courses === true) {
                 // ALL course events. It's not needed to worry about users' access as $users = true.
-                $subqueryconditions[] = "(ev.groupid = 0 AND ev.courseid != 0 AND ev.categoryid = 0)";
+                $subqueryconditions[] = "WHERE (ev.groupid = 0 AND ev.courseid != 0 AND ev.categoryid = 0)";
             }
         }
 
@@ -260,27 +260,32 @@ class raw_event_retrieval_strategy implements raw_event_retrieval_strategy_inter
             $subquerycourses = array_unique($subquerycourses);
         }
 
+        // On MySQL-based databases, the optimizer does not automatically
+        // use the indices in certain cases. Build an index hint for these.
+        $forceindexhint = self::index_hint_sql(array('groupid', 'categoryid', 'courseid'));
+
         // Set subquery filter condition for the courses.
         if (!empty($subquerycourses)) {
             list($incourses, $incoursesparams) = $DB->get_in_or_equal($subquerycourses, SQL_PARAMS_NAMED);
-            $subqueryconditions[] = "(ev.groupid = 0 AND ev.courseid $incourses AND ev.categoryid = 0)";
+            $subqueryconditions[] = "$forceindexhint
+                                     WHERE (ev.groupid = 0 AND ev.courseid $incourses AND ev.categoryid = 0)";
             $subqueryparams = array_merge($subqueryparams, $incoursesparams);
         }
 
         // Set subquery filter condition for the categories.
         if ($categories === true) {
-            $subqueryconditions[] = "(ev.categoryid != 0 AND ev.eventtype = 'category')";
+            $subqueryconditions[] = "WHERE (ev.categoryid != 0 AND ev.eventtype = 'category')";
         } else if (!empty($categories)) {
             list($incategories, $incategoriesparams) = $DB->get_in_or_equal($categories, SQL_PARAMS_NAMED);
-            $subqueryconditions[] = "(ev.groupid = 0 AND ev.courseid = 0 AND ev.categoryid $incategories)";
+            $subqueryconditions[] = "$forceindexhint
+                                     WHERE (ev.groupid = 0 AND ev.courseid = 0 AND ev.categoryid $incategories)";
             $subqueryparams = array_merge($subqueryparams, $incategoriesparams);
         }
 
         // Build the WHERE condition for the sub-query.
         if (!empty($subqueryconditions)) {
             $unionstartquery = "SELECT modulename, instance, eventtype, priority
-                                  FROM {event} ev
-                                 WHERE ";
+                                FROM {event} ev ";
             $subqueryunion = '('.$unionstartquery . implode(" UNION $unionstartquery ", $subqueryconditions).')';
         } else {
             $subqueryunion = '{event}';
@@ -299,9 +304,13 @@ class raw_event_retrieval_strategy implements raw_event_retrieval_strategy_inter
                        FROM $subqueryunion ev
                    GROUP BY ev.modulename, ev.instance, ev.eventtype";
 
+        // Build the index hint for mysql based databases.
+        $useindexhint = self::index_hint_sql(array('groupid', 'courseid', 'categoryid', 'visible', 'userid'), 'USE');
+
         // Build the main query.
         $sql = "SELECT e.*
                   FROM {event} e
+                  $useindexhint
             INNER JOIN ($subquery) fe
                     ON e.modulename = fe.modulename
                        AND e.instance = fe.instance
@@ -319,5 +328,70 @@ class raw_event_retrieval_strategy implements raw_event_retrieval_strategy_inter
         $events = $DB->get_records_sql($sql, $params, $offset, $limitnum);
 
         return  $events === false ? [] : $events;
+    }
+
+    /**
+     * Add some indexes to the "events" table to improve query performance.
+     * Note: Only mysql based databases are supported!
+     * This method build the sql part with the use|force index statement.
+     *
+     * @param array $columns The columns used in this index.
+     * @param string $hinttype The type "USE" or "FORCE"
+     * @param string $table The xmldb table name
+     * @param bool $uniqueindex Index is unique true|false
+     * @return string The sql part for usage in query
+     */
+    public static function index_hint_sql($columns, $hinttype = 'FORCE', $table = 'event', $uniqueindex = false) {
+        global $DB;
+
+        // Only mysql based databases are supported!
+        if ($DB->get_dbfamily() != 'mysql') {
+            return '';
+        }
+
+        $indexname = self::get_indexname($columns, $table, $uniqueindex);
+        if (empty($indexname)) {
+            // Index was not found so we return an empty string.
+            return '';
+        }
+
+        $hinttype = strtoupper($hinttype);
+        $sqlpart = "$hinttype INDEX ($indexname)";
+
+        return $sqlpart;
+    }
+
+    /**
+     * Add some indexes to the "events" table to improve query performance.
+     * Note: Only mysql based databases are supported!
+     * This method find an index name by the columns definition.
+     *
+     * @param array $columns The columns used in this index.
+     * @param string $table The xmldb table name
+     * @param bool $uniqueindex Index is unique true|false
+     * @return string The real name of the index
+     */
+    private static function get_indexname($columns, $table = 'event', $uniqueindex = false) {
+        global $DB;/** @var \moodle_database $DB */
+
+        // We don't want to look into this on every call.
+        static $indexes;
+
+        if (empty($indexes)) {
+            $indexes = $DB->get_indexes($table);
+        }
+
+        if (is_array($indexes)) {
+            $search = array(
+                'unique' => $uniqueindex,
+                'columns' => $columns
+            );
+            foreach ($indexes as $key => $index) {
+                if ($index == $search) {
+                    return $key;
+                }
+            }
+        }
+        return '';
     }
 }
