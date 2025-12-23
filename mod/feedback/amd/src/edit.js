@@ -32,6 +32,7 @@ import {getString, getStrings} from 'core/str';
 import {add as addToast} from 'core/toast';
 import {reorderQuestions} from 'mod_feedback/local/repository';
 import Templates from 'core/templates';
+import $ from 'jquery';
 
 const Selectors = {
     deleteQuestionButton: '[data-action="delete"]',
@@ -123,13 +124,13 @@ export const init = async(cmId) => {
     const sortableList = new SortableList(document.querySelector(Selectors.sortableListRegion));
     sortableList.getElementName = element => Promise.resolve(element[0].querySelector(Selectors.sortableElementTitle)?.textContent);
 
-    document.addEventListener(SortableList.EVENTS.elementDrop, event => {
-        if (!event.detail.positionChanged) {
+    $(document).on(SortableList.EVENTS.DROP, (event, detail) => {
+        if (!detail.positionChanged) {
             return;
         }
         const pendingPromise = new Pending('mod_feedback/questions:reorder');
-        const itemOrder = getItemOrder(event.detail.element[0]);
-        addIconToContainerRemoveOnCompletion(event.detail.element[0], pendingPromise);
+        const itemOrder = getItemOrder(detail.element[0]);
+        addIconToContainerRemoveOnCompletion(detail.element[0], pendingPromise);
         reorderQuestions(moduleId, itemOrder)
             .then(() => getString('questionmoved', 'mod_feedback'))
             .then(addToast)
